@@ -1,0 +1,5 @@
+service : {
+  addFaceDescriptor: (vec float64) -> (nat);
+  compareFaceDescriptor: (vec float64) -> (opt nat);
+  getFaceDescriptors: () -> (vec vec float64) query;
+}
