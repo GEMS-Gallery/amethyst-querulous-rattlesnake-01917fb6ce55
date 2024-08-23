@@ -2,23 +2,39 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button, Container, Typography, Box, CircularProgress } from '@mui/material';
 import { backend } from 'declarations/backend';
 
+declare global {
+  interface Window {
+    faceapi: any;
+  }
+}
+
 const App: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [modelsLoaded, setModelsLoaded] = useState<boolean>(false);
 
   useEffect(() => {
     loadModels();
-    startVideo();
   }, []);
 
+  useEffect(() => {
+    if (modelsLoaded) {
+      startVideo();
+    }
+  }, [modelsLoaded]);
+
   const loadModels = async () => {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-      faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-      faceapi.nets.faceRecognitionNet.loadFromUri('/models')
-    ]);
+    try {
+      await window.faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      await window.faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      await window.faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+      setModelsLoaded(true);
+    } catch (error) {
+      console.error("Error loading models:", error);
+      setStatus("Error loading face detection models");
+    }
   };
 
   const startVideo = () => {
@@ -28,30 +44,33 @@ const App: React.FC = () => {
           videoRef.current.srcObject = stream;
         }
       })
-      .catch(err => console.error("Error accessing the camera:", err));
+      .catch(err => {
+        console.error("Error accessing the camera:", err);
+        setStatus("Error accessing the camera");
+      });
   };
 
   const captureAndDetect = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !window.faceapi) return;
 
     setLoading(true);
     const canvas = canvasRef.current;
     const video = videoRef.current;
     const displaySize = { width: video.width, height: video.height };
-    faceapi.matchDimensions(canvas, displaySize);
+    window.faceapi.matchDimensions(canvas, displaySize);
 
-    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-      .withFaceLandmarks()
-      .withFaceDescriptors();
-
-    if (detections.length === 0) {
-      setStatus("No face detected");
-      setLoading(false);
-      return;
-    }
-
-    const faceDescriptor = Array.from(detections[0].descriptor);
     try {
+      const detections = await window.faceapi.detectAllFaces(video, new window.faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+      if (detections.length === 0) {
+        setStatus("No face detected");
+        setLoading(false);
+        return;
+      }
+
+      const faceDescriptor = Array.from(detections[0].descriptor);
       const matchResult = await backend.compareFaceDescriptor(faceDescriptor);
       if (matchResult === null) {
         const newIndex = await backend.addFaceDescriptor(faceDescriptor);
@@ -59,17 +78,30 @@ const App: React.FC = () => {
       } else {
         setStatus(`Face recognized! This is face #${matchResult + 1}`);
       }
+
+      const resizedDetections = window.faceapi.resizeResults(detections, displaySize);
+      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+      window.faceapi.draw.drawDetections(canvas, resizedDetections);
     } catch (error) {
-      console.error("Error interacting with backend:", error);
+      console.error("Error processing face:", error);
       setStatus("Error processing face");
+    } finally {
+      setLoading(false);
     }
-
-    const resizedDetections = faceapi.resizeResults(detections, displaySize);
-    canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-    faceapi.draw.drawDetections(canvas, resizedDetections);
-
-    setLoading(false);
   };
+
+  if (!modelsLoaded) {
+    return (
+      <Container maxWidth="md">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <CircularProgress />
+          <Typography variant="h6" component="div" sx={{ ml: 2 }}>
+            Loading face detection models...
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="md">
