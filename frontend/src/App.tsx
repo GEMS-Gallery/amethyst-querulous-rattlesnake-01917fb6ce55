@@ -15,6 +15,33 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [modelsLoaded, setModelsLoaded] = useState<boolean>(false);
 
+  const waitForFaceApi = () => {
+    return new Promise<any>((resolve, reject) => {
+      const checkFaceApi = () => {
+        if (window.faceapi) {
+          resolve(window.faceapi);
+        } else {
+          setTimeout(checkFaceApi, 100);
+        }
+      };
+      checkFaceApi();
+      setTimeout(() => reject(new Error('Timeout waiting for faceapi')), 10000);
+    });
+  };
+
+  const loadModels = async () => {
+    try {
+      const faceapi = await waitForFaceApi();
+      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+      setModelsLoaded(true);
+    } catch (error) {
+      console.error("Error loading models:", error);
+      setStatus("Error loading face detection models");
+    }
+  };
+
   useEffect(() => {
     loadModels();
   }, []);
@@ -24,18 +51,6 @@ const App: React.FC = () => {
       startVideo();
     }
   }, [modelsLoaded]);
-
-  const loadModels = async () => {
-    try {
-      await window.faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-      await window.faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-      await window.faceapi.nets.faceRecognitionNet.loadFromUri('/models');
-      setModelsLoaded(true);
-    } catch (error) {
-      console.error("Error loading models:", error);
-      setStatus("Error loading face detection models");
-    }
-  };
 
   const startVideo = () => {
     navigator.mediaDevices.getUserMedia({ video: {} })
